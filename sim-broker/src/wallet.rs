@@ -71,6 +71,16 @@ impl Wallet {
     }
 
     pub fn execute_buy(&mut self, symbol: &str, price: f64, usdt_amount: f64) {
+        self.execute_buy_with_slippage(symbol, price, usdt_amount, None);
+    }
+
+    pub fn execute_buy_with_slippage(
+        &mut self,
+        symbol: &str,
+        price: f64,
+        usdt_amount: f64,
+        slippage_override: Option<f64>,
+    ) {
         if self.usdt_balance < 10.0 {
             info!(
                 symbol = symbol,
@@ -85,8 +95,10 @@ impl Wallet {
             return;
         }
 
-        let mut rng = rand::thread_rng();
-        let slippage_pct: f64 = rng.gen_range(0.0..=0.0005);
+        let slippage_pct = slippage_override.unwrap_or_else(|| {
+            let mut rng = rand::thread_rng();
+            rng.gen_range(0.0..=0.0005)
+        });
         let exec_price = price * (1.0 + slippage_pct);
 
         let trading_fee = spend * 0.001;
@@ -149,13 +161,24 @@ impl Wallet {
     }
 
     pub fn execute_sell(&mut self, symbol: &str, price: f64) {
+        self.execute_sell_with_slippage(symbol, price, None);
+    }
+
+    pub fn execute_sell_with_slippage(
+        &mut self,
+        symbol: &str,
+        price: f64,
+        slippage_override: Option<f64>,
+    ) {
         let pos = match self.positions.remove(symbol) {
             Some(p) => p,
             None => return,
         };
 
-        let mut rng = rand::thread_rng();
-        let slippage_pct: f64 = rng.gen_range(0.0..=0.0005);
+        let slippage_pct = slippage_override.unwrap_or_else(|| {
+            let mut rng = rand::thread_rng();
+            rng.gen_range(0.0..=0.0005)
+        });
         let exec_price = price * (1.0 - slippage_pct);
 
         let gross = pos.amount * exec_price;

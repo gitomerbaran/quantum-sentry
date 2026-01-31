@@ -6,15 +6,24 @@ use tokio::time::{sleep, Duration};
 use tracing::{debug, info, warn};
 
 use crate::model::MarketEvent;
-use crate::strategy::{self, Action};
+use crate::strategy::{Strategy, TradeAction};
 use crate::wallet::Wallet;
 
 const NATS_URL: &str = "nats://127.0.0.1:4222";
 const SUBJECT: &str = "market.raw";
 
-pub async fn run_listener(wallet: Arc<Mutex<Wallet>>) -> Result<()> {
+pub async fn run_listener(wallet: Arc<Mutex<Wallet>>, strategy: impl Strategy) -> Result<()> {
     let mut backoff = Duration::from_millis(250);
     let max_backoff = Duration::from_secs(10);
+
+    let ignored_symbols = [
+        "USDCUSDT",
+        "FDUSDUSDT",
+        "TUSDUSDT",
+        "USDPUSDT",
+        "DAIUSDT",
+        "EURUSDT",
+    ];
 
     loop {
         match async_nats::connect(NATS_URL).await {
@@ -49,6 +58,11 @@ pub async fn run_listener(wallet: Arc<Mutex<Wallet>>) -> Result<()> {
                         None => continue,
                     };
 
+                    if ignored_symbols.contains(&symbol.as_str()) {
+                        info!(symbol = %symbol, "Skipping stablecoin");
+                        continue;
+                    }
+
                     let price = match evt.price_f64() {
                         Some(p) => p,
                         None => continue,
@@ -59,17 +73,17 @@ pub async fn run_listener(wallet: Arc<Mutex<Wallet>>) -> Result<()> {
                     let mut w = wallet.lock().await;
                     w.update_mark(&symbol, price);
 
-                    let action = strategy::evaluate(&w, &symbol, price);
+                    let action = strategy.evaluate(&evt, &w);
                     let did_trade = match action {
-                        Action::Buy(usdt_amount) => {
+                        TradeAction::Buy(usdt_amount) => {
                             w.execute_buy(&symbol, price, usdt_amount);
                             true
                         }
-                        Action::Sell => {
+                        TradeAction::Sell => {
                             w.execute_sell(&symbol, price);
                             true
                         }
-                        Action::Hold => false,
+                        TradeAction::Hold => false,
                     };
 
                     if did_trade {
