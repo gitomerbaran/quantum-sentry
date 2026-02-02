@@ -1,14 +1,33 @@
 # Rust
 target/
 **/*.rs.bk
+
 # Env / local
 .env
 .env.local
 *.local
 
+# Data / datasets (do not push)
+*.parquet
+*.csv
+*.json.gz
+*.jsonl
+*.jsonl.gz
+data/
+datasets/
+exports/
+
+# Logs & temp
+*.log
+tmp/
+temp/
+*.tmp
+*.temp
+
 # IDE
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 
