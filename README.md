@@ -83,7 +83,21 @@ quantum-sentry-trader/
 ├── market-ingestor/     # Binance → NATS
 ├── market-persister/    # NATS → ClickHouse
 ├── sim-broker/          # NATS → Strategy + Wallet
+├── scripts/             # Python data pipelines (AI/ML)
+├── tests/               # Python unit tests
 └── docs/                # Additional documentation
+```
+
+## Python Data Pipeline (Phase 2)
+
+Scripts for preparing data for AI model training (TCN).
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run pipeline
+python scripts/prepare_tcn_data.py --symbol BTCUSDT --limit 100000
 ```
 
 ## Documentation
