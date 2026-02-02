@@ -34,7 +34,35 @@ impl NatsPublisher {
         }
     }
 
-    /// Publish message bytes to NATS subject.
+    /// Publish message bytes to a specific subject (e.g. market.depth.BTCUSDT).
+    /// Same best-effort semantics as publish(); uses same connection.
+    pub async fn publish_to(&self, subject: &str, payload: Bytes) -> Result<()> {
+        {
+            let inner = self.inner.lock().await;
+            if inner.client.is_none() {
+                drop(inner);
+                self.ensure_connected().await?;
+            }
+        }
+        let mut inner = self.inner.lock().await;
+        if let Some(client) = inner.client.as_ref() {
+            match client.publish(subject.to_string(), payload).await {
+                Ok(_) => {
+                    inner.backoff = Duration::from_millis(250);
+                    return Ok(());
+                }
+                Err(e) => {
+                    warn!(error = %e, subject = %subject, "nats publish_to failed; dropping client");
+                    inner.client = None;
+                    inner.backoff = std::cmp::min(inner.backoff * 2, inner.max_backoff);
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Publish message bytes to NATS subject (default subject for this publisher).
     ///
     /// Best-effort semantics:
     /// - Returns Ok even if publishing fails after logging, so ingestion hot path isn't fatal.

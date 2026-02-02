@@ -6,34 +6,27 @@ mod wallet;
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
 use anyhow::Result;
-use tracing::{info, warn};
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use crate::strategy::PingPongStrategy;
+use crate::strategy::{Strategy, TrendFollowStrategy};
 use crate::wallet::Wallet;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
 
-    info!("starting sim-broker");
+    info!("starting sim-broker (futures simulator)");
 
-    let wallet = Arc::new(Mutex::new(Wallet::new()));
-    {
-        let w = wallet.lock().await;
-        w.log_status();
-    }
+    let wallet = Wallet::new();
+    wallet.log_status();
 
-    let wallet_clone = wallet.clone();
-    let strategy = PingPongStrategy;
+    let strategy: Box<dyn Strategy> = Box::new(TrendFollowStrategy::new());
 
     let listener_task = tokio::spawn(async move {
-        if let Err(e) = listener::run_listener(wallet_clone, strategy).await {
-            warn!(error = %e, "listener exited with error");
+        if let Err(e) = listener::run_listener(wallet, strategy).await {
+            tracing::warn!(error = %e, "listener exited with error");
         }
     });
 
@@ -42,7 +35,7 @@ async fn main() -> Result<()> {
             info!("received Ctrl+C; shutting down");
         }
         _ = listener_task => {
-            warn!("listener task finished unexpectedly");
+            tracing::warn!("listener task finished unexpectedly");
         }
     }
 
