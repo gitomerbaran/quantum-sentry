@@ -1,0 +1,23 @@
+[package]
+name = "feature_engine"
+version = "0.1.0"
+edition = "2021"
+description = "Quantum Sentinel v2 Hot Path Feature Engine (scale-invariant, RAM-only)"
+
+[[bin]]
+name = "feature_engine"
+path = "src/main.rs"
+
+[dependencies]
+common = { path = "../common" }
+logger = { path = "../logger" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "macros", "time", "rt-multi-thread", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-nats = "0.38"
+futures-util = "0.3"
+
+[dev-dependencies]
+approx = "0.5"

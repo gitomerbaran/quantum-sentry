@@ -1,3 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["market-ingestor", "market-persister", "sim-broker"]
+# Tüm Rust crate'leri rust/ altında. Çalışan 3 servis: market-ingestor, market-persister, sim-broker.
+members = [
+  "rust/market-ingestor",
+  "rust/market-persister",
+  "rust/sim-broker",
+  "rust/common",
+  "rust/feature_engine",
+  "rust/executor",
+  "rust/logger",
+  "rust/replay",
+]

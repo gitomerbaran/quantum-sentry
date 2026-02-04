@@ -1,0 +1,32 @@
+[package]
+name = "replay"
+version = "0.1.0"
+edition = "2021"
+description = "Offline deterministic replay from ClickHouse + dataset export + golden capture"
+
+[[bin]]
+name = "replay"
+path = "src/main.rs"
+
+[dependencies]
+common = { path = "../common" }
+feature_engine = { path = "../feature_engine" }
+executor = { path = "../executor" }
+logger = { path = "../logger" }
+clickhouse = "0.14"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["sync", "macros", "time", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+csv = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+async-trait = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
+common = { path = "../common" }
+executor = { path = "../executor" }

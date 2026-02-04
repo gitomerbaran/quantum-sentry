@@ -1,0 +1,18 @@
+[package]
+name = "logger"
+version = "0.1.0"
+edition = "2021"
+description = "Quantum Sentinel v2 cold-path async batch logger (Mock + ClickHouse)"
+
+[features]
+default = []
+clickhouse = ["dep:clickhouse"]
+
+[dependencies]
+common = { path = "../common" }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+tokio = { version = "1", features = ["sync", "macros", "time", "rt", "rt-multi-thread"] }
+tracing = "0.1"
+async-trait = "0.1"
+clickhouse = { version = "0.14", optional = true }

@@ -1,0 +1,6 @@
+model_version: "v0"
+onnx_model_path: "models/model.onnx"
+meta_path: "models/model_meta.json"
+warmup_runs: 5
+expected_feature_len: 4
+output_kind: "binary_probs"  # or "logits"

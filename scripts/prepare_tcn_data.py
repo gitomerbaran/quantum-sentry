@@ -14,20 +14,38 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-def fetch_data(host: str = 'localhost', symbol: str = 'BTCUSDT', limit: int = 100000) -> pd.DataFrame:
+def fetch_data(
+    host: str = 'localhost',
+    port: int = 9000,
+    user: str = 'qs_user',
+    password: str = 'qs_pass',
+    database: str = 'quantum',
+    symbol: str = 'BTCUSDT',
+    limit: int = 100000,
+) -> pd.DataFrame:
     """
     Fetches depth snapshots from ClickHouse.
 
     Args:
-        host (str): ClickHouse host address.
-        symbol (str): Trading symbol (e.g., 'BTCUSDT').
-        limit (int): Maximum number of rows to fetch.
+        host: ClickHouse host address.
+        port: ClickHouse native protocol port (default 9000).
+        user: ClickHouse user (matches docker-compose CLICKHOUSE_USER).
+        password: ClickHouse password (matches docker-compose CLICKHOUSE_PASSWORD).
+        database: ClickHouse database name.
+        symbol: Trading symbol (e.g., 'BTCUSDT').
+        limit: Maximum number of rows to fetch.
 
     Returns:
         pd.DataFrame: DataFrame containing market depth data.
     """
     try:
-        client = clickhouse_driver.Client(host=host)
+        client = clickhouse_driver.Client(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
+        )
 
         query = f"""
         SELECT
@@ -36,7 +54,7 @@ def fetch_data(host: str = 'localhost', symbol: str = 'BTCUSDT', limit: int = 10
             bids_qty,
             asks_price,
             asks_qty
-        FROM quantum.depth_snapshots
+        FROM {database}.depth_snapshots
         WHERE symbol = '{symbol}'
         ORDER BY ts_exchange ASC
         LIMIT {limit}
@@ -199,12 +217,24 @@ def main():
     parser.add_argument("--limit", type=int, default=100000, help="Number of rows to fetch")
     parser.add_argument("--symbol", type=str, default="BTCUSDT", help="Symbol to fetch")
     parser.add_argument("--output", type=str, default="data/tcn_dataset.pt", help="Output file path")
-    parser.add_argument("--host", type=str, default="localhost", help="ClickHouse host")
+    parser.add_argument("--host", type=str, default=os.environ.get("CLICKHOUSE_HOST", "localhost"), help="ClickHouse host")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("CLICKHOUSE_PORT", "9000")), help="ClickHouse native port")
+    parser.add_argument("--user", type=str, default=os.environ.get("CLICKHOUSE_USER", "qs_user"), help="ClickHouse user")
+    parser.add_argument("--password", type=str, default=os.environ.get("CLICKHOUSE_PASSWORD", "qs_pass"), help="ClickHouse password")
+    parser.add_argument("--database", type=str, default=os.environ.get("CLICKHOUSE_DB", "quantum"), help="ClickHouse database")
 
     args = parser.parse_args()
 
     try:
-        df = fetch_data(host=args.host, symbol=args.symbol, limit=args.limit)
+        df = fetch_data(
+            host=args.host,
+            port=args.port,
+            user=args.user,
+            password=args.password,
+            database=args.database,
+            symbol=args.symbol,
+            limit=args.limit,
+        )
 
         if len(df) < 100:
             logging.warning("Not enough data fetched to process.")

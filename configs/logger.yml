@@ -1,0 +1,16 @@
+# Cold-path logger (rust/logger). Sadece feature_engine veya executor çalıştırıyorsanız kullanılır.
+# trade_ticks / bbo_ticks'e tek yazar market-persister'dır (single-writer). Logger sadece v2 tablolarına yazar.
+# log_raw_ticks: Production'da false önerilir. true ise logger da raw tablolara yazar = çift kayıt + single-writer ihlali.
+#   Sadece persister çalıştırmadan v2-only kullanıyorsan ve ayrı tablolar (örn. bbo_ticks_v2_raw) kullanacaksan açabilirsin.
+enabled: true
+flush_interval_ms: 500
+max_batch_size: 2000
+drop_on_full: true
+log_raw_ticks: true   # Production: false önerilir
+clickhouse:
+  url: "http://localhost:8123"
+  database: "quantum"
+  username: "default"
+  password: ""
+  send_retries: 5
+  retry_backoff_ms: 200

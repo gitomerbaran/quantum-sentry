@@ -1,0 +1,9 @@
+# Quantum Sentinel v2 — Feature config skeleton
+# Features must be scale-invariant (returns/ratios); no raw price as primary signal.
+
+version: 1
+features:
+  - name: placeholder
+    dtype: float32
+    window: 1s
+    missing_policy: not_ready

@@ -1,0 +1,10 @@
+{
+  "model_version": "v0",
+  "feature_version": 1,
+  "feature_order": ["log_return_1", "log_return_window", "spread_pct", "imbalance"],
+  "expected_feature_len": 4,
+  "output": {
+    "kind": "binary_probs",
+    "names": ["p_down", "p_up"]
+  }
+}

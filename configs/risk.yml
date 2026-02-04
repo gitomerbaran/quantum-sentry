@@ -1,0 +1,11 @@
+execution_enabled: false
+latency_max_ms: 200
+spread_max_pct: 0.20
+max_daily_loss_pct: 2.0
+max_risk_per_trade_pct: 0.25
+max_leverage: 3
+# Executor gates + stabilization
+confidence_min: 0.55
+cooldown_ms: 5000
+hysteresis_enter: 0.62
+hysteresis_exit: 0.58
