@@ -1,0 +1,12 @@
+execution_enabled: false
+# Aggressive preset: intentionally produces trades in replay/paper.
+max_latency_ms: 5000
+max_spread_pct: 1.00
+min_confidence: 0.40
+cooldown_ms: 0
+hysteresis_enter: 0.50
+hysteresis_exit: 0.45
+allow_short: true
+
+
+

@@ -5,8 +5,10 @@ use common::{BboTick, Decision, FeatureSnapshot};
 use serde::Serialize;
 use std::io::Write;
 use std::path::Path;
+use std::collections::BTreeMap;
 
 use crate::engine::ReplayResult;
+use crate::golden::{GoldenBbo, GoldenDecision, GoldenFeature, GoldenMeta};
 
 /// Export format for features and decisions files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -72,6 +74,7 @@ pub fn export_run(
     result: &ReplayResult,
     opts: &RunExport,
     golden: Option<&GoldenCapture>,
+    meta: Option<&GoldenMeta>,
 ) -> anyhow::Result<ExportSummary> {
     std::fs::create_dir_all(&opts.export_dir)?;
     let ext = match opts.export_format {
@@ -84,6 +87,7 @@ pub fn export_run(
     if opts.write_decisions {
         write_decisions(&opts.export_dir, &result.decisions, opts.export_format, ext)?;
     }
+    write_decision_reasons(&opts.export_dir, &result.decisions)?;
     if opts.log_raw_ticks && !result.bbo_ticks.is_empty() {
         write_golden_raw_bbo(&opts.export_dir, &result.bbo_ticks)?;
     }
@@ -91,15 +95,52 @@ pub fn export_run(
     if let Some(g) = golden {
         let golden_dir = g.base_dir.join("golden").join(&g.name);
         std::fs::create_dir_all(&golden_dir)?;
-        write_golden_raw_bbo(&golden_dir, &result.bbo_ticks)?;
-        write_golden_features(&golden_dir, &result.snapshots)?;
-        write_golden_decisions(&golden_dir, &result.decisions)?;
+        write_golden_raw_bbo_with_seq(&golden_dir, &result.bbo_ticks)?;
+        write_golden_features_with_seq(&golden_dir, &result.snapshots)?;
+        write_golden_decisions_with_seq(&golden_dir, &result.decisions)?;
+        if let Some(m) = meta {
+            crate::golden::write_meta(golden_dir.join("meta.json"), m)?;
+        }
     }
 
     let summary = build_summary(result);
     let summary_path = opts.export_dir.join("summary.json");
     std::fs::write(summary_path, serde_json::to_string_pretty(&summary)?)?;
     Ok(summary)
+}
+
+#[derive(Debug, Serialize)]
+struct DecisionReasonsReport {
+    total: u64,
+    no_trade: u64,
+    by_reason: BTreeMap<String, u64>,
+}
+
+fn write_decision_reasons(dir: &Path, decisions: &[Decision]) -> anyhow::Result<()> {
+    let mut by_reason: BTreeMap<String, u64> = BTreeMap::new();
+    let mut no_trade = 0_u64;
+    for d in decisions {
+        if d.action == Action::NoTrade {
+            no_trade += 1;
+        }
+        for r in &d.reason_codes {
+            *by_reason.entry(r.clone()).or_insert(0) += 1;
+        }
+    }
+    let report = DecisionReasonsReport {
+        total: decisions.len() as u64,
+        no_trade,
+        by_reason,
+    };
+    let path = dir.join("decision_reasons.json");
+    std::fs::write(path, serde_json::to_string_pretty(&report)?)?;
+
+    // Print top-10 reasons to stdout (stable, deterministic).
+    let mut items: Vec<(String, u64)> = report.by_reason.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    items.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let top10: Vec<(String, u64)> = items.into_iter().take(10).collect();
+    tracing::info!(total = report.total, no_trade = report.no_trade, ?top10, "decision reasons histogram");
+    Ok(())
 }
 
 fn write_features(
@@ -242,6 +283,23 @@ fn write_golden_raw_bbo(dir: &Path, bbos: &[BboTick]) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn write_golden_raw_bbo_with_seq(dir: &Path, bbos: &[BboTick]) -> anyhow::Result<()> {
+    let path = dir.join("raw_bbo.jsonl");
+    let f = std::fs::File::create(path)?;
+    let mut w = std::io::BufWriter::new(f);
+    for (seq, b) in bbos.iter().enumerate() {
+        let golden = GoldenBbo {
+            seq: seq as u64,
+            tick: b.clone(),
+        };
+        serde_json::to_writer(&mut w, &golden)?;
+        w.write_all(b"\n")?;
+    }
+    Ok(())
+}
+
+// Legacy function - kept for compatibility but not used (we use write_golden_features_with_seq)
+#[allow(dead_code)]
 fn write_golden_features(dir: &Path, snapshots: &[FeatureSnapshot]) -> anyhow::Result<()> {
     let path = dir.join("expected_features.jsonl");
     let f = std::fs::File::create(path)?;
@@ -253,12 +311,47 @@ fn write_golden_features(dir: &Path, snapshots: &[FeatureSnapshot]) -> anyhow::R
     Ok(())
 }
 
+pub fn write_golden_features_with_seq(
+    dir: &Path,
+    snapshots: &[FeatureSnapshot],
+) -> anyhow::Result<()> {
+    let path = dir.join("expected_features.jsonl");
+    let f = std::fs::File::create(path)?;
+    let mut w = std::io::BufWriter::new(f);
+    for (seq, s) in snapshots.iter().enumerate() {
+        let golden = GoldenFeature {
+            seq: seq as u64,
+            snapshot: s.clone(),
+        };
+        serde_json::to_writer(&mut w, &golden)?;
+        w.write_all(b"\n")?;
+    }
+    Ok(())
+}
+
+// Legacy function - kept for compatibility but not used (we use write_golden_decisions_with_seq)
+#[allow(dead_code)]
 fn write_golden_decisions(dir: &Path, decisions: &[Decision]) -> anyhow::Result<()> {
     let path = dir.join("expected_decisions.jsonl");
     let f = std::fs::File::create(path)?;
     let mut w = std::io::BufWriter::new(f);
     for d in decisions {
         serde_json::to_writer(&mut w, d)?;
+        w.write_all(b"\n")?;
+    }
+    Ok(())
+}
+
+pub fn write_golden_decisions_with_seq(dir: &Path, decisions: &[Decision]) -> anyhow::Result<()> {
+    let path = dir.join("expected_decisions.jsonl");
+    let f = std::fs::File::create(path)?;
+    let mut w = std::io::BufWriter::new(f);
+    for (seq, d) in decisions.iter().enumerate() {
+        let golden = GoldenDecision {
+            seq: seq as u64,
+            decision: d.clone(),
+        };
+        serde_json::to_writer(&mut w, &golden)?;
         w.write_all(b"\n")?;
     }
     Ok(())

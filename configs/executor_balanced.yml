@@ -1,0 +1,12 @@
+execution_enabled: false
+# Balanced gates: reasonable trade frequency.
+max_latency_ms: 1000
+max_spread_pct: 0.30
+min_confidence: 0.55
+cooldown_ms: 3000
+hysteresis_enter: 0.62
+hysteresis_exit: 0.58
+allow_short: true
+
+
+

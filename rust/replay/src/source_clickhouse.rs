@@ -9,6 +9,8 @@ use serde::Deserialize;
 pub struct ClickHouseReplaySource {
     pub url: String,
     pub database: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
     pub symbol: String,
     pub from_ts_ms: i64,
     pub to_ts_ms: i64,
@@ -42,9 +44,15 @@ struct TradeRow {
 #[async_trait::async_trait]
 impl ReplaySource for ClickHouseReplaySource {
     async fn fetch_events(&self) -> anyhow::Result<Vec<ReplayEvent>> {
-        let client = clickhouse::Client::default()
+        let mut client = clickhouse::Client::default()
             .with_url(&self.url)
             .with_database(&self.database);
+        if let Some(ref user) = self.username {
+            client = client.with_user(user);
+        }
+        if let Some(ref pass) = self.password {
+            client = client.with_password(pass);
+        }
 
         let mut events = Vec::new();
 
@@ -53,15 +61,23 @@ impl ReplaySource for ClickHouseReplaySource {
             .map(|n| format!("LIMIT {}", n))
             .unwrap_or_default();
 
+        // Convert epoch ms to DateTime for ClickHouse comparison
+        let from_dt = chrono::DateTime::from_timestamp_millis(self.from_ts_ms)
+            .ok_or_else(|| anyhow::anyhow!("invalid from_ts_ms: {}", self.from_ts_ms))?;
+        let to_dt = chrono::DateTime::from_timestamp_millis(self.to_ts_ms)
+            .ok_or_else(|| anyhow::anyhow!("invalid to_ts_ms: {}", self.to_ts_ms))?;
+        let from_str = from_dt.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+        let to_str = to_dt.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+
         let bbo_sql = format!(
             "SELECT ts_exchange, ts_ingest, update_id, symbol, bid_price, bid_qty, ask_price, ask_qty \
              FROM bbo_ticks \
-             WHERE symbol = '{}' AND ts_exchange >= {} AND ts_exchange <= {} \
+             WHERE symbol = '{}' AND ts_exchange >= '{}' AND ts_exchange <= '{}' \
              ORDER BY ts_exchange, update_id \
              {}",
             self.symbol.replace('\'', "''"),
-            self.from_ts_ms,
-            self.to_ts_ms,
+            from_str,
+            to_str,
             limit_clause
         );
 
@@ -83,12 +99,12 @@ impl ReplaySource for ClickHouseReplaySource {
             let trade_sql = format!(
                 "SELECT ts_exchange, ts_ingest, trade_id, symbol, price, quantity, is_buyer_maker \
                  FROM trade_ticks \
-                 WHERE symbol = '{}' AND ts_exchange >= {} AND ts_exchange <= {} \
+                 WHERE symbol = '{}' AND ts_exchange >= '{}' AND ts_exchange <= '{}' \
                  ORDER BY ts_exchange, trade_id \
                  {}",
                 self.symbol.replace('\'', "''"),
-                self.from_ts_ms,
-                self.to_ts_ms,
+                from_str,
+                to_str,
                 limit_clause
             );
             let trade_rows: Vec<TradeRow> = client.query(&trade_sql).fetch_all().await?;

@@ -20,6 +20,9 @@ impl JsonlReplaySource {
 #[async_trait::async_trait]
 impl ReplaySource for JsonlReplaySource {
     async fn fetch_events(&self) -> anyhow::Result<Vec<ReplayEvent>> {
+        use crate::golden::GoldenBbo;
+        use common::BboTick;
+
         let content = tokio::fs::read_to_string(&self.path).await?;
         let mut events = Vec::new();
         for line in content.lines() {
@@ -27,8 +30,25 @@ impl ReplaySource for JsonlReplaySource {
             if line.is_empty() {
                 continue;
             }
-            let event: ReplayEvent = serde_json::from_str(line)?;
-            events.push(event);
+            // Try to parse as ReplayEvent first (legacy format)
+            if let Ok(event) = serde_json::from_str::<ReplayEvent>(line) {
+                events.push(event);
+            } else {
+                // Try to parse as GoldenBbo (upgraded format with seq)
+                if let Ok(golden) = serde_json::from_str::<GoldenBbo>(line) {
+                    events.push(ReplayEvent::Bbo(golden.tick));
+                } else {
+                    // Try to parse as plain BboTick (fallback)
+                    if let Ok(tick) = serde_json::from_str::<BboTick>(line) {
+                        events.push(ReplayEvent::Bbo(tick));
+                    } else {
+                        anyhow::bail!(
+                            "Failed to parse line as ReplayEvent, GoldenBbo, or BboTick: {}",
+                            line
+                        );
+                    }
+                }
+            }
         }
         events.sort();
         Ok(events)

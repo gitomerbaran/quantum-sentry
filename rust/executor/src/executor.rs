@@ -7,13 +7,6 @@ use std::collections::HashMap;
 use crate::config::ExecutorConfig;
 use crate::inference::InferenceEngine;
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
 /// Per-symbol executor state for stabilization.
 #[derive(Debug, Clone)]
 struct PerSymbolState {
@@ -57,36 +50,24 @@ impl<E: InferenceEngine> Executor<E> {
         let mut reasons = Vec::new();
         let model_version = self.engine.model_version().to_string();
 
-        // D1) Gates
+        // D1) Gates (collect all deterministic reasons for NO_TRADE)
         if !snap.ready {
-            let dec = self.decision(
-                snap,
-                Action::NoTrade,
-                0.0,
-                &["not_ready".to_string()],
-                model_version.as_str(),
-            );
-            return (dec, None);
+            reasons.push("not_ready".to_string());
         }
         if snap.data_latency_ms > self.config.latency_max_ms {
-            reasons.push("latency_gate".to_string());
-            let dec = self.decision(snap, Action::NoTrade, 0.0, &reasons, model_version.as_str());
-            return (dec, None);
+            reasons.push("latency_too_high".to_string());
         }
         if !snap.spread_pct.is_finite() || snap.spread_pct > self.config.spread_max_pct {
-            reasons.push("spread_gate".to_string());
-            let dec = self.decision(snap, Action::NoTrade, 0.0, &reasons, model_version.as_str());
-            return (dec, None);
+            reasons.push("spread_too_high".to_string());
         }
-
-        // Meta: feature length must match engine expectation
         if let Some(expected_len) = self.engine.expected_feature_len() {
             if snap.features.len() != expected_len {
                 reasons.push("meta_mismatch".to_string());
-                let dec =
-                    self.decision(snap, Action::NoTrade, 0.0, &reasons, model_version.as_str());
-                return (dec, None);
             }
+        }
+        if !reasons.is_empty() {
+            let dec = self.decision(snap, Action::NoTrade, 0.0, &reasons, model_version.as_str());
+            return (dec, None);
         }
 
         let out = self.engine.predict(&snap.features);
@@ -96,7 +77,7 @@ impl<E: InferenceEngine> Executor<E> {
             return (dec, None);
         }
         if !out.confidence.is_finite() || out.confidence < self.config.confidence_min {
-            reasons.push("low_confidence".to_string());
+            reasons.push("confidence_low".to_string());
             let dec = self.decision(
                 snap,
                 Action::NoTrade,
@@ -116,17 +97,35 @@ impl<E: InferenceEngine> Executor<E> {
             Action::Short
         };
 
+        if candidate == Action::Short && !self.config.allow_short {
+            reasons.push("short_disabled".to_string());
+            let dec = self.decision(
+                snap,
+                Action::NoTrade,
+                out.confidence,
+                &reasons,
+                model_version.as_str(),
+            );
+            return (dec, None);
+        }
+
+        // Trace even when stabilization later turns action into NO_TRADE.
+        reasons.push("passed_gates".to_string());
+        reasons.push("signal_ok".to_string());
+
         // D3) Stabilization (copy config to avoid holding &mut self across use)
         let cooldown_ms = self.config.cooldown_ms;
         let hysteresis_exit = self.config.hysteresis_exit;
         let hysteresis_enter = self.config.hysteresis_enter;
         let sym_state = self.state_for(&snap.symbol);
-        let now = now_ms();
+        // Deterministic time base: use ts_exchange (epoch ms), not wall clock.
+        let now = snap.ts_exchange.max(0) as u64;
 
         if candidate != Action::NoTrade
+            && sym_state.last_trade_ts_ms != 0
             && now.saturating_sub(sym_state.last_trade_ts_ms) < cooldown_ms
         {
-            reasons.push("cooldown".to_string());
+            reasons.push("cooldown_active".to_string());
             let dec = self.decision(
                 snap,
                 Action::NoTrade,
@@ -140,7 +139,7 @@ impl<E: InferenceEngine> Executor<E> {
         if out.confidence < hysteresis_exit
             && (sym_state.last_action == Action::Long || sym_state.last_action == Action::Short)
         {
-            reasons.push("hysteresis_exit".to_string());
+            reasons.push("hysteresis_hold".to_string());
             let dec = self.decision(
                 snap,
                 Action::NoTrade,
@@ -153,11 +152,11 @@ impl<E: InferenceEngine> Executor<E> {
 
         let action = match (sym_state.last_action, candidate) {
             (Action::Long, Action::Short) if out.p_down < hysteresis_enter => {
-                reasons.push("hysteresis_no_flip".to_string());
+                reasons.push("hysteresis_hold".to_string());
                 Action::NoTrade
             }
             (Action::Short, Action::Long) if out.p_up < hysteresis_enter => {
-                reasons.push("hysteresis_no_flip".to_string());
+                reasons.push("hysteresis_hold".to_string());
                 Action::NoTrade
             }
             _ => candidate,
@@ -271,7 +270,7 @@ mod tests {
         let snap = snapshot(true, 150, 0.01, vec![0.1, 0.0, 0.01, 0.5]);
         let (dec, _) = exec.on_snapshot(&snap);
         assert_eq!(dec.action, Action::NoTrade);
-        assert!(dec.reason_codes.contains(&"latency_gate".to_string()));
+        assert!(dec.reason_codes.contains(&"latency_too_high".to_string()));
     }
 
     #[test]
@@ -284,7 +283,7 @@ mod tests {
         let snap = snapshot(true, 50, 0.25, vec![0.1, 0.0, 0.01, 0.5]);
         let (dec, _) = exec.on_snapshot(&snap);
         assert_eq!(dec.action, Action::NoTrade);
-        assert!(dec.reason_codes.contains(&"spread_gate".to_string()));
+        assert!(dec.reason_codes.contains(&"spread_too_high".to_string()));
     }
 
     #[test]
@@ -297,7 +296,7 @@ mod tests {
         let snap = snapshot(true, 50, 0.01, vec![0.1, 0.0, 0.01, 0.5]);
         let (dec, _) = exec.on_snapshot(&snap);
         assert_eq!(dec.action, Action::NoTrade);
-        assert!(dec.reason_codes.contains(&"low_confidence".to_string()));
+        assert!(dec.reason_codes.contains(&"confidence_low".to_string()));
     }
 
     #[test]
@@ -343,7 +342,7 @@ mod tests {
         let snap2 = snapshot(true, 51, 0.01, vec![0.1, 0.0, 0.01, 0.5]);
         let (dec2, _) = exec.on_snapshot(&snap2);
         assert_eq!(dec2.action, Action::NoTrade);
-        assert!(dec2.reason_codes.contains(&"cooldown".to_string()));
+        assert!(dec2.reason_codes.contains(&"cooldown_active".to_string()));
     }
 
     #[test]
@@ -362,9 +361,7 @@ mod tests {
         let snap2 = snapshot(true, 51, 0.01, vec![0.1, 0.0, 0.01, 0.5]);
         let (dec2, _) = exec.on_snapshot(&snap2);
         assert_eq!(dec2.action, Action::NoTrade);
-        assert!(dec2
-            .reason_codes
-            .contains(&"hysteresis_no_flip".to_string()));
+        assert!(dec2.reason_codes.contains(&"hysteresis_hold".to_string()));
     }
 
     #[test]

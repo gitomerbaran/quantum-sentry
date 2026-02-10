@@ -4,9 +4,9 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use ort::session::Session;
 use crate::inference::{InferenceEngine, InferenceOutput};
 use crate::model_config::{ModelConfig, ModelMeta};
+use ort::session::Session;
 
 /// Real ONNX inference engine. Session + meta created once at startup.
 #[derive(Debug)]

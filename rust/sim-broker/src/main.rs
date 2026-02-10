@@ -1,5 +1,6 @@
 mod listener;
 mod model;
+mod paper_broker;
 mod strategy;
 mod wallet;
 

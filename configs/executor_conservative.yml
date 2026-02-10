@@ -1,0 +1,12 @@
+execution_enabled: false
+# Tight gates: fewer trades, safer.
+max_latency_ms: 200
+max_spread_pct: 0.20
+min_confidence: 0.65
+cooldown_ms: 8000
+hysteresis_enter: 0.70
+hysteresis_exit: 0.60
+allow_short: true
+
+
+
